@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="ar">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>شرح مفصل لكود حركة اللاعب المحسن في Godot</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      line-height: 1.6;
+      margin: 20px;
+      background-color: #f4f4f4;
+      direction: rtl;
+    }
+    h1, h2, h3 {
+      color: #333;
+    }
+    pre {
+      background-color: #272822;
+      color: #f8f8f2;
+      padding: 15px;
+      overflow-x: auto;
+      position: relative;
+      border-radius: 4px;
+    }
+    code {
+      font-family: Consolas, Monaco, 'Andale Mono', 'Ubuntu Mono', monospace;
+    }
+    .section {
+      background: #fff;
+      padding: 20px;
+      margin-bottom: 20px;
+      border-radius: 8px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+
+  </style>
+</head>
+<body>
+
+  <h1>شرح مفصل لكود حركة اللاعب المحسن في Godot</h1>
+  
+  <div class="section">
+    <h2>مقدمة</h2>
+    <p>
+      في هذا المثال سنستعرض كود حركة لاعب في لعبة ثنائية الأبعاد باستخدام محرك Godot. الكود مكتوب بلغة <strong>GDScript</strong> وقد تم تحسينه عبر تقسيم المهام إلى دوال منفصلة، مثل:
+    </p>
+    <ul>
+      <li>تحديث المؤقتات (Timers) باستخدام دالة <code>update_timers()</code>.</li>
+      <li>معالجة الجاذبية في دالة <code>handle_gravity()</code>.</li>
+      <li>إدارة حركة اللاعب (على الأرض وفي الهواء) باستخدام دالة <code>handle_movement()</code>.</li>
+      <li>تنفيذ القفز عبر دالة <code>process_jump()</code>.</li>
+      <li>تحديث الأنيميشن بناءً على حالة اللاعب باستخدام دالة <code>update_animation()</code>.</li>
+    </ul>
+    <p>
+      هذا التقسيم يسهل قراءة الكود وصيانته، كما يوضح منطق كل جزء بشكل منفصل.
+    </p>
+  </div>
+
+  <div class="section">
+    <h2>الكود المحسن</h2><button class="copy-button" onclick="copyCode()">نسخ الكود</button>
+    <div style="position: relative;">
+      
+      <pre id="codeBlock"><code>
+extends KinematicBody2D
+
+# معلمات الحركة
+export var max_speed := 600.0
+export var acceleration := 1500.0
+export var friction := 2000.0
+export var jump_force := -1000.0
+export var gravity := 2700.0
+export var air_resistance := 0.8
+export var air_acceleration := 800.0
+
+# معلمات القفز المتقدمة
+export var coyote_time := 0.15
+export var jump_buffer_time := 0.1
+
+var velocity := Vector2.ZERO
+var coyote_timer := 0.0
+var jump_buffer_timer := 0.0
+var is_jumping := false
+
+onready var animated_sprite := $AnimatedSprite
+
+func _physics_process(delta):
+	# تحديث المؤقتات (coyote timer و jump buffer)
+	update_timers(delta)
+	
+	# معالجة الجاذبية والحركة والقفز والأنيميشن
+	handle_gravity(delta)
+	handle_movement(delta)
+	process_jump()
+	update_animation()
+	
+	# تحريك الجسم مع التعامل مع التصادمات
+	velocity = move_and_slide(velocity, Vector2.UP)
+
+# دالة لتحديث المؤقتات (coyote timer و jump buffer)
+func update_timers(delta):
+	# تحديث مؤقت طلب القفز
+	if Input.is_action_just_pressed("ui_up"):
+		jump_buffer_timer = jump_buffer_time
+	else:
+		jump_buffer_timer = max(jump_buffer_timer - delta, 0.0)
+		
+	# تحديث مؤقت coyote عند التواجد على الأرض
+	if is_on_floor():
+		coyote_timer = coyote_time
+	else:
+		coyote_timer = max(coyote_timer - delta, 0.0)
+
+func handle_gravity(delta):
+	if not is_on_floor():
+		velocity.y += gravity * delta
+	else:
+		is_jumping = false
+
+func handle_movement(delta):
+	# الحصول على قوة الإدخال الأفقي
+	var move_input = Input.get_action_strength("ui_right") - Input.get_action_strength("ui_left")
+	
+	if is_on_floor():
+		# على الأرض: تسارع أو تباطؤ باستخدام الاحتكاك
+		if move_input != 0:
+			velocity.x = move_toward(velocity.x, move_input * max_speed, acceleration * delta)
+		else:
+			velocity.x = move_toward(velocity.x, 0, friction * delta)
+	else:
+		# في الهواء: تسارع أقل أو مقاومة الهواء
+		if move_input != 0:
+			velocity.x = move_toward(velocity.x, move_input * max_speed, air_acceleration * delta)
+		else:
+			velocity.x *= air_resistance
+
+func process_jump():
+	# تنفيذ القفز إذا كان اللاعب على الأرض أو ضمن فترة coyote ويكون طلب القفز موجودًا
+	if (is_on_floor() or coyote_timer > 0) and jump_buffer_timer > 0:
+		velocity.y = jump_force
+		is_jumping = true
+		# إعادة تعيين المؤقتات بعد القفز
+		coyote_timer = 0.0
+		jump_buffer_timer = 0.0
+
+func update_animation():
+	if is_on_floor():
+		if abs(velocity.x) > 10:
+			animated_sprite.play("run")
+		else:
+			animated_sprite.play("idle")
+	else:
+		if velocity.y < 0:
+			animated_sprite.play("jump")
+		else:
+			animated_sprite.play("fall")
+	
+	# قلب الأنيميشن بناءً على اتجاه الحركة
+	if velocity.x != 0:
+		animated_sprite.flip_h = velocity.x < 0
+</code></pre>
+    </div>
+  </div>
+
+  <div class="section">
+    <h2>شرح تفصيلي لكل جزء من الكود</h2>
+    <h3>1. تعريف الكائن واستخراج المتغيرات:</h3>
+    <ul>
+      <li>
+        <strong>extends KinematicBody2D:</strong> توسيع الكائن ليصبح من نوع KinematicBody2D مما يتيح له التفاعل مع الفيزياء والحركة.
+      </li>
+      <li>
+        <strong>المتغيرات المُصدّرة (export var):</strong> تسمح بتعديل قيم معلمات الحركة والقفز من داخل محرر Godot دون الحاجة لتعديل الكود.
+      </li>
+      <li>
+        <strong>المتغيرات الداخلية:</strong> مثل <code>velocity</code> لتخزين سرعة اللاعب، و<code>coyote_timer</code> و<code>jump_buffer_timer</code> لتحديث القفز.
+      </li>
+      <li>
+        <strong>onready var animated_sprite:</strong> الحصول على عقدة الرسوم المتحركة <code>AnimatedSprite</code> لتحديث الأنيميشن.
+      </li>
+    </ul>
+
+    <h3>2. دالة _physics_process(delta):</h3>
+    <p>
+      تُستدعى هذه الدالة في كل إطار وتستخدم قيمة <code>delta</code> (الزمن المنقضي منذ الإطار السابق) لضمان استمرارية الحركة بسلاسة. في داخلها:
+    </p>
+    <ul>
+      <li>يتم تحديث المؤقتات عبر <code>update_timers(delta)</code>.</li>
+      <li>يتم تطبيق الجاذبية بواسطة <code>handle_gravity(delta)</code>.</li>
+      <li>تتحكم دالة <code>handle_movement(delta)</code> في الحركة الأفقية بناءً على مدخلات اللاعب.</li>
+      <li>تنفذ دالة <code>process_jump()</code> منطق القفز عند استيفاء الشروط.</li>
+      <li>يتم تحديث الأنيميشن بناءً على الحالة من خلال <code>update_animation()</code>.</li>
+      <li>يتم تحريك اللاعب باستخدام <code>move_and_slide</code> الذي يتعامل مع التصادمات.</li>
+    </ul>
+
+    <h3>3. دالة update_timers(delta):</h3>
+    <p>
+      تجمع هذه الدالة بين تحديث مؤقت طلب القفز (<code>jump_buffer_timer</code>) ومؤقت coyote (<code>coyote_timer</code>). فمثلاً:
+    </p>
+    <ul>
+      <li>
+        عند الضغط على زر القفز (<code>ui_up</code>) يتم تعيين <code>jump_buffer_timer</code> إلى قيمة <code>jump_buffer_time</code>.
+      </li>
+      <li>
+        إذا لم يكن هناك ضغط يتم تقليل قيمة المؤقت تدريجيًا.
+      </li>
+      <li>
+        إذا كان اللاعب على الأرض، يتم إعادة تعيين <code>coyote_timer</code>، وإلا يتم تقليله مع مرور الوقت.
+      </li>
+    </ul>
+
+    <h3>4. دالة handle_gravity(delta):</h3>
+    <p>
+      تضيف هذه الدالة قوة الجاذبية إلى سرعة اللاعب في المحور الرأسي (<code>y</code>) عندما يكون في الهواء. وعندما يكون اللاعب على الأرض يتم إيقاف القفز.
+    </p>
+
+    <h3>5. دالة handle_movement(delta):</h3>
+    <p>
+      تتحكم هذه الدالة في حركة اللاعب:
+    </p>
+    <ul>
+      <li>
+        تُحسب قيمة الإدخال الأفقي باستخدام الفرق بين قوة الضغط على زر اليمين واليسار.
+      </li>
+      <li>
+        على الأرض، يتم زيادة السرعة تدريجيًا (باستخدام <code>acceleration</code>) أو تقليلها عند عدم وجود إدخال (باستخدام <code>friction</code>).
+      </li>
+      <li>
+        في الهواء، يكون التأثير أقل باستخدام <code>air_acceleration</code>، ومع ذلك تُطبق مقاومة الهواء (<code>air_resistance</code>) عند عدم وجود إدخال.
+      </li>
+    </ul>
+
+    <h3>6. دالة process_jump():</h3>
+    <p>
+      تتحقق من إمكانية القفز وتنفيذها إذا كان اللاعب:
+    </p>
+    <ul>
+      <li>على الأرض أو ضمن فترة <code>coyote_timer</code> (فترة سماح قصيرة بعد مغادرة الأرض).</li>
+      <li>وكان هناك طلب قفز تم تخزينه في <code>jump_buffer_timer</code>.</li>
+    </ul>
+    <p>
+      عند استيفاء الشروط يتم تعيين <code>velocity.y</code> لقيمة <code>jump_force</code> ثم يتم إعادة تعيين كلا المؤقتين.
+    </p>
+
+    <h3>7. دالة update_animation():</h3>
+    <p>
+      تعتمد الأنيميشن المعروض على حالة اللاعب:
+    </p>
+    <ul>
+      <li>
+        إذا كان اللاعب على الأرض، يُعرض أنيميشن "idle" إذا كانت الحركة طفيفة أو "run" إذا كانت الحركة واضحة.
+      </li>
+      <li>
+        إذا كان اللاعب في الهواء، يُعرض "jump" أثناء الصعود و "fall" أثناء الهبوط.
+      </li>
+      <li>
+        كما يتم قلب صورة الأنيميشن أفقيًا (<code>flip_h</code>) بناءً على اتجاه الحركة.
+      </li>
+    </ul>
+  </div>
+
+  <div class="section">
+    <h2>خاتمة</h2>
+    <p>
+      يُظهر هذا الكود كيفية تنظيم منطق حركة اللاعب في لعبة ثنائية الأبعاد باستخدام Godot مع تبسيط وتحسين منطق القفز والأنيميشن. باستخدام تقسيم الكود إلى دوال منفصلة، يمكنك بسهولة صيانته وتعديل سلوكه بما يتناسب مع احتياجات مشروعك.
+    </p>
+  </div>
+  
+  <script>
+    function copyCode() {
+      const codeText = document.getElementById('codeBlock').innerText;
+      navigator.clipboard.writeText(codeText).then(function() {
+        alert('تم نسخ الكود!');
+      }, function(err) {
+        alert('فشل النسخ: ' + err);
+      });
+    }
+  </script>
+  
+</body>
+</html>
